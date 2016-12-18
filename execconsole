@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+
+import copy
+import os
+import re
+import readline
+import subprocess
+import sys
+import threading
+
+from operator import attrgetter
+from tempfile import NamedTemporaryFile
+
+g_children = []
+g_done = threading.Event()
+
+class ChildProcess (object):
+    def __init__ (self, cmd, cmd_args, proc, stdout_file, stderr_file):
+        self.cmd = cmd
+        self.cmd_args = cmd_args
+        self.proc = proc
+        self.stdout_file = stdout_file
+        self.stderr_file = stderr_file
+
+def template_positions (args):
+    positions = []
+    for (ix, arg) in enumerate(args):
+        if arg == "{}":
+            positions.append(ix)
+    return positions
+
+def run_cmd (cmd, cmd_args, inp):
+    global g_children
+
+    cmd_args1 = copy.copy(cmd_args)
+    placeholders = template_positions(cmd_args1)
+    if len(placeholders) == 0:
+        cmd_args1.append(inp)
+    else:
+        for ix in placeholders:
+            cmd_args1[ix] = inp
+
+    print("Running", cmd, *cmd_args1)
+    stdout_file = NamedTemporaryFile()
+    stderr_file = NamedTemporaryFile()
+    proc = subprocess.Popen([cmd] + cmd_args1, stdout=stdout_file, stderr=stderr_file)
+    g_children.append(ChildProcess(cmd, cmd_args1, proc, stdout_file, stderr_file))
+
+def show_status ():
+    global g_children
+
+    print("PID   STATUS      CMD")
+    print("=====================")
+
+    for child in g_children:
+        if child.proc.returncode is None:
+            status = "RUNNING"
+        elif child.proc.returncode == 0:
+            status = "FINISHED"
+        else:
+            status = "Err ({err})".format(err=child.proc.returncode)
+        print("{pid:5d} {status:>12} {cmd}".format(pid=child.proc.pid, cmd=child.cmd, status=status))
+
+    print(str(len(g_children)), "child processes")
+
+def peek_last_lines_pattern (lines=3):
+    pattern_text = "(^.*?+$){{{lines}}})\Z".format(lines=lines)
+    pattern = re.compile(pattern_text, re.MULTILINE)
+
+# def peek_at_process (pid):
+#     for (cmd, child) in g_children:
+#         if child.proc.pid == pid:
+#             if child.proc.returncode is None or child.proc.returncode == 0:
+#                 last_line_endings = [None] * 3
+#                 ix = 0
+#                 for mch in re.compile(r'$', re.MULTILINE).finditer(child.stdout):
+#                     last_line_endings[ix] = mch
+#                     ix = (ix + 1) % 3
+
+#                 last_line_endings = list(sorted((m for m in last_line_endings if m is not None), key=attrgetters('pos')))
+#                 if len(last_line_endings) == 0:
+#                     print("stdout is empty.")
+#                 else:
+#                     print(child.stdout[last_line_endings[0].pos:])
+#             return
+#     print("No such child.")
+
+g_peek_cmd_pattern = re.compile("^peek\s+(\d+)$")
+def prompt_loop (prompt, cmd, cmd_args):
+    global g_done
+
+    while True:
+        try:
+            sys.stdout.write("> ")
+            inpline = input().strip()
+            if inpline == "exit" or inpline == "quit":
+                for child in g_children:
+                    if child.proc.returncode is None:
+                        print("Cannot exit because there are unfinished child processes.")
+                        next
+                break
+            elif inpline.startswith("peek"):
+                mch = g_peek_cmd_pattern.match(inpline)
+                if mch:
+                    peek_at_process(int(mch.group(1)))
+                else:
+                    print("SYNTAX: peek <pid>")
+            elif inpline == "status":
+                show_status()
+            else:
+                run_cmd(cmd, cmd_args, inpline)
+        except EOFError:
+            break
+
+    g_done.set()
+
+def child_status_pump (done_event):
+    loops = 0
+    while g_done.is_set() == False:
+        for child in g_children:
+            if child.proc.returncode is None:
+                try:
+                    child.proc.communicate(timeout=0.001)
+                except subprocess.TimeoutExpired:
+                    pass
+        done_event.wait(timeout=0.2)
+
+def main (args):
+    if len(args) < 1:
+        print("Please provide a command to run.")
+        return 1
+    cmd = args[0]
+
+    if len(args) > 1:
+        cmd_args = args[1:]
+    else:
+        cmd_args = []
+
+    background_pump = threading.Thread(target=child_status_pump, args=(g_done,))
+    background_pump.start()
+    prompt_loop("> ", cmd, cmd_args)
+
+    background_pump.join()
+    print("Bye")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+
