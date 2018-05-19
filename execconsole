@@ -12,6 +12,7 @@ import threading
 from operator import attrgetter
 from tempfile import NamedTemporaryFile
 
+g_verbose = False
 g_children = []
 g_done = threading.Event()
 
@@ -53,7 +54,7 @@ def reset_display ():
     show_status()
 
 def show_status ():
-    global g_children
+    global g_children, g_verbose
 
     print("PID   STATUS      CMD")
     print("=====================")
@@ -65,7 +66,15 @@ def show_status ():
             status = "FINISHED"
         else:
             status = "Err ({err})".format(err=child.proc.returncode)
-        print("{pid:5d} {status:>12} {cmd}".format(pid=child.proc.pid, cmd=child.cmd, status=status))
+
+        if g_verbose:
+            cmd = [child.cmd]
+            cmd.extend(child.cmd_args)
+            cmd = ' '.join(cmd)
+        else:
+            cmd = child.cmd
+        fmtstr = "{pid:5d} {status:>12} {cmd}"
+        print(fmtstr.format(pid=child.proc.pid, cmd=cmd, status=status))
 
     print(str(len(g_children)), "child processes")
 
@@ -93,7 +102,7 @@ def peek_at_process (pid):
 
 g_peek_cmd_pattern = re.compile("^peek\s+(\d+)$")
 def prompt_loop (prompt, cmd, cmd_args):
-    global g_done
+    global g_done, g_verbose
 
     while True:
         try:
@@ -115,6 +124,9 @@ def prompt_loop (prompt, cmd, cmd_args):
                 reset_display()
             elif inpline == "status" or inpline == "s":
                 show_status()
+            elif inpline == "verbose":
+                g_verbose = not g_verbose
+                print("Verbosity is {}".format("On" if g_verbose else "Off"))
             else:
                 run_cmd(cmd, cmd_args, inpline)
         except EOFError:

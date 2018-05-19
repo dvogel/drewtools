@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 def main (args):
     output_filename = None
     cmd = "/usr/bin/wget"
-    cmd_args = [cmd, "--no-use-server-timestamps"]
+    cmd_args = [cmd, "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.119 Safari/537.36", "--no-use-server-timestamps"]
 
     if len(args) < 1:
         print("Please provide a URL to download")
