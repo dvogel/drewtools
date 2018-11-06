@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# vim: filetype=bash
+
+set -o errexit
+
+SELF_PATH=$(greadlink -f "$0")
+SELF_DIR=$(dirname "${SELF_PATH}")
+SELF_NAME=$(basename "${SELF_PATH}")
+
+function usage () {
+    while [[ -n "$1" ]]; do
+        echo ERROR: $1
+        shift
+    done
+    echo
+    echo "USAGE: ${SELF_NAME} [--key N] [--certificate N] [pem file]"
+    echo
+    echo "-k N | --key N           Specify which key to extract."
+    echo "-c N | --certificate N   Specify which certificate to extract."
+    echo
+    echo "When specifying each N must be greater than or equal to 1."
+    echo
+    echo "If [pem file] is not specified then you must provide a PEM file"
+    echo "via standard input."
+    exit 1
+}
+
+certificate_number=""
+private_key_number=""
+
+while [[ 1 ]]; do
+    case $1 in
+        -h|--help)
+            usage
+            ;;
+        -c|--certificate)
+            [[ -z "$2" ]] && usage "Certificate number (1-indexed) argument required for $1 option."
+            [[ -n "$certificate_number" ]] && usage "You cannot specify multiple certificates to extract."
+            certificate_number="$2"
+            shift
+            ;;
+        -k|--key)
+            [[ -z "$2" ]] && usage "Key number (1-indexed) argument required for $1 option."
+            [[ -n "$key_number" ]] && usage "You cannot specify multiple keys to extract."
+            private_key_number="$2"
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+
+    shift
+done
+[[ -z "$certificate_number" && -z "$private_key_number" ]] && exit
+
+pem_friendly_name="$1"
+pem_file="$1"
+if [[ -z "$pem_file" ]]; then
+  pem_friendly_name="stdin"
+  pem_file=$(mktemp)
+  cat > "$pem_file"
+fi
+
+n_certificates=$(cat "$pem_file" | grep -- "-----END CERTIFICATE-----" | wc -l)
+n_private_keys=$(cat "$pem_file" | grep -- "-----END RSA PRIVATE KEY-----" | wc -l)
+[[ -n "$certificate_number" && ( "$certificate_number" -lt 1 || "$certificate_number" -gt "$n_certificates" ) ]] && usage "Cannot select certificate #$certificate_number, only $n_certificates exist in $pem_friendly_name"
+[[ -n "$private_key_number" && ( "$private_key_number" -lt 1 || "$private_key_number" -gt "$n_private_keys" ) ]] && usage "Cannot select private key #$private_key_number, only $n_private_keys exist in $pem_friendly_name"
+
+certificates_seen=0
+private_keys_seen=0
+in_certificate=0
+in_private_key=0
+while read ln; do
+  if [[ "$ln" == "-----BEGIN CERTIFICATE-----" ]]; then
+    certificates_seen=$(($certificates_seen + 1))
+    in_certificate=1
+  elif [[ "$ln" == "-----BEGIN RSA PRIVATE KEY-----" ]]; then
+    private_keys_seen=$(($private_keys_seen + 1))
+    in_private_key=1
+  fi
+
+  if [[ $in_certificate -eq 1 && $certificates_seen -eq $certificate_number ]]; then
+    echo $ln
+  elif [[ $in_private_key -eq 1 && $private_keys_seen -eq $private_key_number ]]; then
+    echo $ln
+  fi
+
+  if [[ "$ln" == "-----END CERTIFICATE-----" ]]; then
+    in_certificate=0
+  elif [[ "$ln" == "-----END RSA PRIVATE KEY-----" ]]; then
+    in_private_key=0
+  fi
+done < "$pem_file"
+
+
