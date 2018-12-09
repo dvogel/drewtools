@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# vim: expandtab tabstop=2 shiftwidth=2
+
+token=$(cat)
+
+function echo_vars {
+  local names
+  local values
+  declare -a names
+  declare -a values
+
+  n=0
+  while [[ $# -gt 0 && $1 != "--" ]]; do
+    names[$n]="$1"
+    shift
+    n=$((n + 1))
+  done
+
+  if [[ $# -eq 0 ]]; then
+    return
+  fi
+
+  if [[ $1 == "--" ]]; then
+    shift
+    nn=0 
+    while [[ $# -gt 0 && $nn -lt $n ]]; do
+      values[$nn]="$1"
+      shift
+      nn=$(($nn + 1))
+    done
+  fi
+
+  nn=0
+  while [[ $nn -lt $n ]]; do
+    echo "${names[$nn]}=${values[$nn]}"
+    nn=$(($nn + 1))
+  done
+}
+
+function base64_pad {
+  rem=$((${#1} % 4 ))
+  if [[ $rem -eq 3 ]]; then
+    echo "${1}="
+  elif [[ $rem -eq 2 ]]; then
+    echo "${1}=="
+  else
+    echo "${1}"
+  fi
+}
+
+eval $(IFS="."; echo_vars jwt_hdr jwt_payload jwt_sig -- $token)
+jq . <<< $(base64_pad $jwt_hdr | base64 -d)
+jq . <<< $(base64_pad $jwt_payload | base64 -d)
+
