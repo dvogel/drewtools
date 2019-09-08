@@ -143,10 +143,19 @@ def main(args):
     with open('.reddit-listing-scraper') as fil:
         cfg = yaml.safe_load(fil.read())
 
+
     subreddit_name = extract_subreddit_from_url(args[0])
     debug("SUBREDDIT: %s" % (subreddit_name,))
 
-    instructions = cfg[subreddit_name]
+    instructions = []
+    try:
+        instructions = cfg[subreddit_name]
+    except KeyError:
+        print("No instructions for subreddit: %s" % (subreddit_name,))
+        print("Known subreddits:")
+        for key in cfg:
+            print("  - %s" % (key,))
+        return 1
     value = args[0]
     try:
         for instr in instructions:
