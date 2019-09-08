@@ -114,6 +114,12 @@ def prompt_loop (prompt, cmd, cmd_args):
                         print("Cannot exit because there are unfinished child processes.")
                         next
                 break
+            elif inpline == "help" or inpline == "h":
+                print(", ".join(sorted([
+                    'exit', 'quit', 'peek', 'reset', 'info', 'status', 'verbose',
+                ])))
+            elif inpline == "info" or inpline == "i":
+                print("COMMAND: %s %s" % (cmd, " ".join(cmd_args)))
             elif inpline.startswith("peek"):
                 mch = g_peek_cmd_pattern.match(inpline)
                 if mch:
