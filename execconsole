@@ -116,7 +116,7 @@ def prompt_loop (prompt, cmd, cmd_args):
                 break
             elif inpline == "help" or inpline == "h":
                 print(", ".join(sorted([
-                    'exit', 'quit', 'peek', 'reset', 'info', 'status', 'verbose',
+                    'exit', 'peek', 'prune', 'quit', 'reset', 'info', 'status', 'verbose',
                 ])))
             elif inpline == "info" or inpline == "i":
                 print("COMMAND: %s %s" % (cmd, " ".join(cmd_args)))
@@ -126,6 +126,10 @@ def prompt_loop (prompt, cmd, cmd_args):
                     peek_at_process(int(mch.group(1)))
                 else:
                     print("SYNTAX: peek <pid>")
+            elif inpline == "prune":
+                bye_list = [child for child in g_children if child.proc.returncode == 0]
+                for child in bye_list:
+                    g_children.remove(child)
             elif inpline == "reset" or inpline == "r":
                 reset_display()
             elif inpline == "status" or inpline == "s":
