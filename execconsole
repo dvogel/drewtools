@@ -8,6 +8,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import uuid
 
 from operator import attrgetter
 from tempfile import NamedTemporaryFile
@@ -138,7 +139,13 @@ def prompt_loop (prompt, cmd, cmd_args):
                 g_verbose = not g_verbose
                 print("Verbosity is {}".format("On" if g_verbose else "Off"))
             else:
-                run_cmd(cmd, cmd_args, inpline)
+                cmd_args1 = []
+                for arg in cmd_args:
+                    if arg == "{UUID}":
+                        cmd_args1.append(str(uuid.uuid4()))
+                    else:
+                        cmd_args1.append(arg)
+                run_cmd(cmd, cmd_args1, inpline)
         except EOFError:
             break
 
