@@ -17,6 +17,7 @@
 #   - command: exec
 #     cmd: easywget
 
+import copy
 import os
 import re
 import sys
@@ -28,6 +29,7 @@ import yaml
 from urllib.parse import urlparse
 
 debug_flag = False
+g_registers = {}
 
 def disable_debugging():
     global debug_flag
@@ -52,6 +54,15 @@ def extract_subreddit_from_url(url):
     m = pattern.match(url)
     if m:
         return m.group(1)
+
+    pattern = re.compile(r'http[s]?://(?:www.)?reddit.com/(user/.+?)/(saved|upvoted)')
+    m = pattern.match(url)
+    if m:
+        return m.group(1)
+
+def get_registers():
+    global g_registers
+    return copy.copy(g_registers)
 
 def dl_json(url):
     headers = {'user-agent': 'reddix-dev0/0.0.1'}
@@ -109,17 +120,46 @@ def cmd_extract_regex_capture(instr, value):
 def cmd_exec(instr, value):
     args = [instr['cmd']]
     if 'args' in instr:
-        args.extend(instr['args'])
-    args.append(str(value))
+        rewritten_args = [arg.format(**get_registers(), value=value) for arg in instr['args']]
+        args.extend(rewritten_args)
+    else:
+        args.append(str(value))
     os.execvp(instr['cmd'], args)
 
+def cmd_load(instr, value):
+    global g_registers
+    return g_registers[instr['register']]
+
+def cmd_regex_replace(instr, value):
+    pattern = re.compile(instr['pattern'], re.S)
+    substitution = instr['substitution']
+    value = pattern.sub(substitution, value)
+    return value
+
+def cmd_require_media_file_url(instr, value):
+    pattern = re.compile(r'http[s]://.+/.+.(avi|gif|gifv|jpg|mp4|png)')
+    m = pattern.match(value)
+    if m:
+        return value
+
+def cmd_store(instr, value):
+    global g_registers
+    g_registers[instr['register']] = value
+    return value
+
+
 VALID_COMMANDS = {
+    #'reddit-login': cmd_reddit_login,
     'ensure-listing-json-url': cmd_ensure_listing_json_url,
     'dl-json': cmd_dl_json,
     'extract-json-value': cmd_extract_json_value,
     'extract-regex-capture': cmd_extract_regex_capture,
     'dl-html': cmd_dl_html,
     'exec': cmd_exec,
+    'load': cmd_load,
+    'regex_replace': cmd_regex_replace,
+    'require-media-file-url': cmd_require_media_file_url,
+    'store': cmd_store,
 }
 
 def process_options(args):
