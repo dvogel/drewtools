@@ -18,6 +18,8 @@
 #     cmd: easywget
 
 import copy
+import datetime
+import json
 import os
 import re
 import sys
@@ -29,6 +31,7 @@ import yaml
 from urllib.parse import urlparse
 
 debug_flag = False
+verbose_flag = False
 g_registers = {}
 
 def disable_debugging():
@@ -42,6 +45,11 @@ def enable_debugging():
 def debug(*args, **kwargs):
     global debug_flag
     if debug_flag == True:
+        print(*args, **kwargs)
+
+def log_verbose(*args, **kwargs):
+    global verbose_flag
+    if verbose_flag == True:
         print(*args, **kwargs)
 
 class ExecError(Exception):
@@ -98,11 +106,18 @@ def cmd_ensure_listing_json_url(_instr, value):
     return ensure_listing_json_url(value)
 
 def cmd_extract_json_value(instr, value):
-    try:
-        extracted = jsonpointer.resolve_pointer(value, instr['json_pointer'])
-        return extracted
-    except jsonpointer.JsonPointerException:
-        raise ExecError("Failed to resolve JSON pointer %s" % (instr['json_pointer'],))
+    plural = instr.get('json_pointers')
+    singular = instr.get('json_pointer')
+    if plural is None and singular is None:
+        raise ExecError("extract-json-value expects either json_pointers or json_pointers")
+    json_pointers = [singular] if plural is None else plural
+    for ptr in json_pointers:
+        try:
+            extracted = jsonpointer.resolve_pointer(value, ptr)
+            return extracted
+        except jsonpointer.JsonPointerException:
+            pass
+    raise ExecError("Failed to resolve JSON pointer %s" % (json_pointers,))
 
 def cmd_extract_regex_capture(instr, value):
     pattern = None
@@ -124,6 +139,7 @@ def cmd_exec(instr, value):
         args.extend(rewritten_args)
     else:
         args.append(str(value))
+    log_verbose("exec:", args)
     os.execvp(instr['cmd'], args)
 
 def cmd_load(instr, value):
@@ -157,27 +173,35 @@ VALID_COMMANDS = {
     'dl-html': cmd_dl_html,
     'exec': cmd_exec,
     'load': cmd_load,
-    'regex_replace': cmd_regex_replace,
+    'regex-replace': cmd_regex_replace,
     'require-media-file-url': cmd_require_media_file_url,
     'store': cmd_store,
 }
 
 def process_options(args):
     options = {
-        'debug': False
+        'debug': False,
+        'verbose': False,
     }
     new_args = []
     for arg in args:
         if arg == "-d":
             options['debug'] = True
+        elif arg == "-v":
+            options['verbose'] = True
         else:
             new_args.append(arg)
     return (new_args, options)
 
 def main(args):
+    global verbose_flag
+
     (args, options) = process_options(args)
     if options['debug']:
         enable_debugging()
+
+    if options['verbose']:
+        verbose_flag = True
 
     cfg = None
     with open('.reddit-listing-scraper') as fil:
@@ -197,16 +221,29 @@ def main(args):
             print("  - %s" % (key,))
         return 1
     value = args[0]
+
+    trace_encoder = json.JSONEncoder(
+        skipkeys=True,
+        sort_keys=True,
+        indent=2,
+    )
+    if debug_flag == True:
+        trace_log_path = "trace-%s.json" % (datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), )
+    else:
+        trace_log_path = "/dev/null"
+
     try:
-        for instr in instructions:
-            debug("CURRENT VALUE: %s" % (str(value)[0:100],))
-            cmd_name = instr['command']
-            if cmd_name in VALID_COMMANDS:
-                cmd_func = VALID_COMMANDS[cmd_name]
-                value = cmd_func(instr, value)
-            else:
-                raise ExecError("No such command: %s" % (cmd_name,))
-        return 0
+        with open(trace_log_path, 'wb') as trace_log:
+            for instr in instructions:
+                cmd_name = instr['command']
+                trace_log.write(bytes(trace_encoder.encode({'cmd': cmd_name, 'current_value': value}), 'utf-8'))
+                trace_log.write(b"\n")
+                if cmd_name in VALID_COMMANDS:
+                    cmd_func = VALID_COMMANDS[cmd_name]
+                    value = cmd_func(instr, value)
+                else:
+                    raise ExecError("No such command: %s" % (cmd_name,))
+            return 0
     except ExecError as err:
         print(err.msg)
         return 1
